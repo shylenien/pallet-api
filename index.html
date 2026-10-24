@@ -1,0 +1,491 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Điều phối Robot & Pallet Kho</title>
+<style>
+* { box-sizing: border-box; }
+body { margin: 0; padding: 20px; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #e2e8f0; color: #1e293b; }
+.container { max-width: 1280px; margin: auto; }
+.panel { background: white; padding: 22px; border-radius: 16px; margin-bottom: 22px; box-shadow: 0 4px 20px rgba(0,0,0,0.05); }
+h1, h2, h3 { color: #0f172a; margin-top: 0; font-weight: 700; }
+
+.form-group { display: flex; gap: 12px; margin-bottom: 15px; align-items: center; }
+input[type="text"] { flex: 1; padding: 12px 18px; border: 2px solid #cbd5e1; border-radius: 10px; font-size: 16px; outline: none; transition: 0.3s; font-family: monospace; }
+input[type="text"]:focus { border-color: #3b82f6; box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1); }
+select { padding: 12px; border-radius: 10px; border: 2px solid #cbd5e1; font-size: 15px; background: #f8fafc; font-weight: bold; color: #334155; cursor: pointer; outline: none; }
+button { padding: 12px 22px; background: #3b82f6; color: white; border: none; border-radius: 10px; font-weight: bold; font-size: 15px; cursor: pointer; transition: 0.2s; white-space: nowrap; }
+button:hover { background: #2563eb; transform: translateY(-1px); }
+
+.btn-reset-all { background: #ef4444; color: white; padding: 8px 16px; border-radius: 8px; font-size: 14px; }
+.btn-reset-all:hover { background: #dc2626; }
+
+.output-box { background: #0f172a; color: #15cd83; padding: 18px 22px; border-radius: 12px; font-family: 'Courier New', Courier, monospace; font-size: 15px; min-height: 70px; margin-bottom: 18px; border: 1px solid #334155; }
+.route-string { color: #38bdf8; font-size: 26px; font-weight: bold; letter-spacing: 1.5px; margin: 8px 0 12px 0; word-break: break-all; }
+
+/* --- GIAO DIỆN TRỰC QUAN --- */
+.visual-grid { display: grid; grid-template-columns: 1.25fr 1fr; gap: 20px; margin-top: 15px; }
+@media (max-width: 1024px) { .visual-grid { grid-template-columns: 1fr; } }
+
+.sub-panel { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px; padding: 16px; }
+.sub-title { font-size: 15px; font-weight: 700; color: #334155; margin-bottom: 12px; display: flex; justify-content: space-between; align-items: center; }
+
+.warehouse-map { display: flex; flex-direction: column; gap: 12px; user-select: none; }
+.map-header { display: grid; grid-template-columns: 50px 1fr 50px 1fr 50px 1fr 50px; text-align: center; font-size: 12px; font-weight: bold; color: #475569; }
+.map-row { display: grid; grid-template-columns: 50px 1fr 50px 1fr 50px 1fr 50px; align-items: center; gap: 8px; }
+
+.lane-cell { display: flex; flex-direction: column; align-items: center; justify-content: center; position: relative; min-height: 125px; }
+.lane-line { position: absolute; top: 0; bottom: 0; width: 3px; background: #cbd5e1; z-index: 1; }
+.stop-dot { position: relative; z-index: 2; width: 28px; height: 28px; border-radius: 50%; background: #fff; border: 3px solid #94a3b8; display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: bold; color: #64748b; transition: 0.25s; }
+.stop-dot.dual { background: linear-gradient(90deg, #10b981 50%, #f59e0b 50%); color: white; border-color: #475569; }
+.stop-dot.active { transform: scale(1.25); border-color: #1d4ed8; background: #2563eb !important; color: #fff; box-shadow: 0 0 12px rgba(37,99,235,0.75); }
+
+.pallet-card { border: 2px solid #334155; border-radius: 8px; overflow: hidden; background: white; box-shadow: 0 2px 4px rgba(0,0,0,0.04); transition: 0.3s; }
+.pallet-card-header { background: #1e293b; color: white; font-size: 12px; font-weight: bold; text-align: center; padding: 4px 6px; display: flex; justify-content: space-between; }
+
+.slot-mini-grid { display: inline-grid; grid-template-columns: repeat(2, 28px); gap: 4px; padding: 6px; background: #fff; border-radius: 6px; border: 1px solid #cbd5e1; }
+.slot-cell { height: 22px; font-size: 11px; font-weight: bold; display: flex; align-items: center; justify-content: center; border-radius: 4px; background: #f8fafc; color: #94a3b8; border: 1px solid #e2e8f0; }
+.slot-cell.filled { background: #10b981; color: white; border-color: #059669; }
+.slot-cell.latest { background: #f59e0b !important; color: white !important; border-color: #d97706 !important; box-shadow: 0 0 6px rgba(245, 158, 11, 0.5); }
+
+.lanes-timeline { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
+@media (max-width: 680px) { .lanes-timeline { grid-template-columns: repeat(2, 1fr); } }
+.lane-col { background: white; border: 1px solid #cbd5e1; border-radius: 10px; padding: 10px; min-height: 260px; display: flex; flex-direction: column; gap: 8px; }
+.lane-col-header { font-size: 12px; font-weight: bold; text-align: center; padding: 6px; border-radius: 6px; background: #e2e8f0; color: #1e293b; }
+.step-card { background: #eff6ff; border-left: 4px solid #3b82f6; border-radius: 6px; padding: 8px; font-size: 12px; box-shadow: 0 1px 3px rgba(0,0,0,0.05); }
+.step-card.dual-card { background: #fefce8; border-left-color: #eab308; }
+.step-badge { display: inline-block; background: #1d4ed8; color: white; padding: 2px 6px; border-radius: 4px; font-weight: bold; font-size: 11px; margin-bottom: 4px; }
+.action-item { margin-top: 4px; padding-top: 4px; border-top: 1px dashed #cbd5e1; font-size: 11px; color: #334155; }
+
+/* --- BẢNG GIÁM SÁT REALTIME --- */
+table { border-collapse: separate; border-spacing: 0; width: 100%; min-width: 900px; }
+th, td { padding: 12px 14px; border-bottom: 1px solid #f1f5f9; text-align: left; vertical-align: middle; }
+th { background: #f8fafc; font-weight: 600; color: #475569; text-transform: uppercase; font-size: 12px; letter-spacing: 0.5px; }
+tr:hover td { background: #f8fafc; }
+.row-full { background-color: #f0fdf4 !important; }
+
+.badge-stt { background: #1e293b; color: white; padding: 6px 10px; border-radius: 8px; font-weight: bold; font-size: 13px; }
+.badge-model { background: #f1f5f9; color: #334155; border: 1px solid #cbd5e1; padding: 5px 10px; border-radius: 8px; font-weight: bold; font-size: 13px; }
+
+/* Thanh hiển thị Tầng */
+.layer-container { display: flex; gap: 4px; align-items: center; justify-content: center; }
+.layer-box { width: 22px; height: 22px; border-radius: 4px; background: #e2e8f0; border: 1px solid #cbd5e1; display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: bold; color: #94a3b8; }
+.layer-box.active { background: #3b82f6; border-color: #2563eb; color: white; }
+.layer-box.current { background: #f59e0b; border-color: #d97706; color: white; }
+.layer-box.full { background: #10b981; border-color: #059669; color: white; }
+
+.progress-container { width: 100%; }
+.progress-track { width: 100%; background: #e2e8f0; border-radius: 999px; height: 12px; overflow: hidden; }
+.progress-fill { height: 100%; background: #3b82f6; transition: width 0.4s ease; }
+.progress-fill.full { background: #10b981; }
+.progress-text { display: flex; justify-content: space-between; font-size: 12px; font-weight: 600; margin-bottom: 4px; }
+
+.status-dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 6px; }
+.dot-live { background: #10b981; box-shadow: 0 0 8px #10b981; }
+.dot-dead { background: #ef4444; }
+.error { color: #ef4444; font-weight: bold; }
+</style>
+</head>
+<body>
+<div class="container">
+
+  <section class="panel">
+    <h2>📡 Bảng Điều Khiển & Trực Quan Hóa Lộ Trình Robot</h2>
+    <div class="form-group">
+      <input type="text" id="modelInput" placeholder="Nhập chuỗi Model, VD: {1;2;3;1;2;3;1;2}" value="{1;2;3;1;2;3;1;2}">
+      <select id="startPosition">
+        <option value="0,-10">🤖 Cổng Cột 1 (Làn 1) - Trái</option>
+        <option value="25,-10">🤖 Cổng Cột 2 (Làn 2)</option>
+        <option value="50,-10">🤖 Cổng Cột 3 (Làn 3)</option>
+        <option value="75,-10" selected>🤖 Cổng Cột 3 (Làn 4) - Phải</option>
+      </select>
+      <button id="btnProcess">🚀 Xử lý lộ trình</button>
+    </div>
+
+    <div id="outputResult" class="output-box">
+      Hệ thống sẵn sàng. Chọn vị trí xuất phát của Robot và bấm xử lý để xem lộ trình...
+    </div>
+
+    <div class="visual-grid">
+      <div class="sub-panel">
+        <div class="sub-title">
+          <span>🗺️ Sơ Đồ Kho (Dynamic Slotting & Layer Lock)</span>
+        </div>
+        <div class="warehouse-map">
+          <div class="map-header">
+            <div>Làn 1</div>
+            <div>CỘT 1</div>
+            <div>Làn 2</div>
+            <div>CỘT 2</div>
+            <div>Làn 3</div>
+            <div>CỘT 3</div>
+            <div>Làn 4</div>
+          </div>
+          <div id="warehouseMapBody" style="display:flex; flex-direction:column; gap:10px;"></div>
+        </div>
+      </div>
+
+      <div class="sub-panel">
+        <div class="sub-title">
+          <span>🛣️ Hành Trình Tối Ưu Quãng Đường</span>
+        </div>
+        <div class="lanes-timeline" id="lanesTimeline">
+          <div class="lane-col"><div class="lane-col-header">Làn 1</div><div style="color:#94a3b8; font-size:12px; text-align:center; margin-top:20px;">Không có lệnh</div></div>
+          <div class="lane-col"><div class="lane-col-header">Làn 2</div><div style="color:#94a3b8; font-size:12px; text-align:center; margin-top:20px;">Không có lệnh</div></div>
+          <div class="lane-col"><div class="lane-col-header">Làn 3</div><div style="color:#94a3b8; font-size:12px; text-align:center; margin-top:20px;">Không có lệnh</div></div>
+          <div class="lane-col"><div class="lane-col-header">Làn 4</div><div style="color:#94a3b8; font-size:12px; text-align:center; margin-top:20px;">Không có lệnh</div></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="panel">
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px; flex-wrap: wrap; gap: 10px;">
+      <h2>📦 Giám sát Pallet Realtime</h2>
+      <div style="display:flex; align-items:center; gap:15px;">
+        <button onclick="resetAllRows()" class="btn-reset-all" title="Reset tất cả Pallet về 0">🗑️ Xóa toàn bộ số lượng</button>
+        <div id="tableStatus" style="font-size:14px; font-weight:bold; color:#10b981; display:flex; align-items:center;">
+          <span class="status-dot dot-live"></span> Đã kết nối Hệ thống
+        </div>
+      </div>
+    </div>
+
+    <div style="overflow-x:auto; border-radius: 12px; border: 1px solid #e2e8f0;">
+      <table>
+        <thead>
+          <tr>
+            <th width="12%">Vị trí Pallet</th>
+            <th width="12%">Model Hàng</th>
+            <th width="24%" style="text-align: center;">Tiến độ các Tầng</th>
+            <th width="15%" style="text-align: center;">Thùng / Tầng</th>
+            <th width="25%">Tổng Tiến Độ</th>
+            <th width="12%" style="text-align: center;">Thao tác</th>
+          </tr>
+        </thead>
+        <tbody id="rows">
+          <tr><td colspan="6" style="text-align: center; padding: 30px; color: #64748b;">Đang tải dữ liệu...</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+</div>
+
+<script>
+let latestPalletData = [];
+let latestRouteSteps = [];
+
+// 🔥 ĐÃ SỬA BUG: Model tương ứng chuẩn xác Sức chứa max (8, 16, 24). Base luôn là 6 thùng/tầng.
+const MODEL_CONFIG = {
+    "1": {max: 36, bpl: 6},
+    "2": {max: 36, bpl: 6},
+    "3": {max: 36, bpl: 6}
+};
+
+function getModelConfig(model) {
+    const m = String(model).trim();
+    return MODEL_CONFIG[m] || {max: 36, bpl: 6}; // Fallback an toàn nếu ko nhập Model
+}
+
+function buildMiniSlotGridForMap(filledSlotsInLayer, newlyFilledSlots, bpl) {
+  let layoutPairs = [];
+  for(let i = 1; i <= bpl; i += 2) {
+      layoutPairs.push([i, i+1]);
+  }
+
+  let html = `<div class="slot-mini-grid">`;
+
+  layoutPairs.forEach(([leftSlot, rightSlot]) => {
+    let lClassStr = "slot-cell";
+    if (filledSlotsInLayer.includes(leftSlot)) {
+        lClassStr += " filled";
+        if (newlyFilledSlots.includes(leftSlot)) lClassStr += " latest";
+    }
+
+    let rClassStr = "slot-cell";
+    if (filledSlotsInLayer.includes(rightSlot)) {
+        rClassStr += " filled";
+        if (newlyFilledSlots.includes(rightSlot)) rClassStr += " latest";
+    }
+
+    html += `<div class="${lClassStr}" title="Ô ${leftSlot}">${leftSlot}</div>`;
+    html += `<div class="${rClassStr}" title="Ô ${rightSlot}">${rightSlot}</div>`;
+  });
+  html += `</div>`;
+  return html;
+}
+
+function renderWarehouseMap() {
+  const container = document.getElementById("warehouseMapBody");
+  if (!container) return;
+
+  const activeStopMap = {};
+  const activeSideMap = {};
+
+  latestRouteSteps.forEach(step => {
+    activeStopMap[step.stop_id] = step;
+    step.actions.forEach(act => {
+      activeSideMap[act.pallet_stt] = activeSideMap[act.pallet_stt] || [];
+      activeSideMap[act.pallet_stt].push(...act.relative_slots);
+    });
+  });
+
+  const lane1Stops = ["S1", "S2", "S3", "S4", "S17", "S18", "S19", "S20"];
+  const lane2Stops = ["S8", "S7", "S6", "S5", "S24", "S23", "S22", "S21"];
+  const lane3Stops = ["S9", "S10", "S11", "S12", "S25", "S26", "S27", "S28"];
+  const lane4Stops = ["S16", "S15", "S14", "S13", "S32", "S31", "S30", "S29"];
+
+  let html = "";
+  for (let r = 0; r < 8; r++) {
+    const pCol1 = r + 1;           // Cột 1: Pallet 1 -> 8
+    const pCol2 = r + 9;           // Cột 2: Pallet 9 -> 16
+    const pCol3 = r + 17;          // Cột 3: Pallet 17 -> 24
+
+    const getPalletData = (stt) => latestPalletData.find(p => p['STT Pallet'] == stt);
+
+    html += `<div class="map-row">
+      ${renderStopCell(lane1Stops[r], false, activeStopMap)}
+      ${renderPalletCell(pCol1, getPalletData(pCol1), activeSideMap[pCol1] || [])}
+      ${renderStopCell(lane2Stops[r], true, activeStopMap)}
+      ${renderPalletCell(pCol2, getPalletData(pCol2), activeSideMap[pCol2] || [])}
+      ${renderStopCell(lane3Stops[r], true, activeStopMap)}
+      ${renderPalletCell(pCol3, getPalletData(pCol3), activeSideMap[pCol3] || [])}
+      ${renderStopCell(lane4Stops[r], false, activeStopMap)}
+    </div>`;
+  }
+  container.innerHTML = html;
+}
+
+function renderStopCell(stopId, isDual, activeStopMap) {
+  const stepInfo = activeStopMap[stopId];
+  const activeClass = stepInfo ? "active" : (isDual ? "dual" : "");
+  const label = stepInfo ? `B${stepInfo.step_num}` : stopId;
+  const title = stepInfo ? `Bước ${stepInfo.step_num}: ${stepInfo.token}` : `Điểm dừng ${stopId}`;
+  return `<div class="lane-cell"><div class="lane-line"></div><div class="stop-dot ${activeClass}" title="${title}">${label}</div></div>`;
+}
+
+function renderPalletCell(stt, palletData, newlyFilledSlots) {
+  const model = palletData ? palletData['Model'] : '-';
+  const cfg = getModelConfig(model);
+  const bpl = cfg.bpl;
+  const max_layers = Math.ceil(cfg.max / bpl);
+
+  const data_slots_str = palletData ? palletData['Data_Slots'] : '';
+  const data_slots = data_slots_str ? data_slots_str.split(',').filter(x => x).map(Number) : [];
+  const totalQty = data_slots.length;
+  const isActive = newlyFilledSlots.length > 0;
+
+  let active_logic_layer = 0;
+
+  if (isActive) {
+    if (totalQty % bpl === 0 && totalQty > 0) {
+        active_logic_layer = (totalQty / bpl) - 1;
+    } else {
+        active_logic_layer = Math.floor(totalQty / (bpl + 0.01));
+    }
+  } else {
+    while (active_logic_layer < max_layers) {
+      const slots_in_layer = data_slots.filter(s => s >= active_logic_layer*bpl + 1 && s <= active_logic_layer*bpl + bpl);
+      if (slots_in_layer.length < bpl) break;
+      active_logic_layer++;
+    }
+    if (active_logic_layer === max_layers) active_logic_layer = max_layers - 1;
+  }
+
+  const currentLayer = totalQty > 0 ? (active_logic_layer + 1) : '-';
+
+  const filled_relative = data_slots
+      .filter(s => s >= active_logic_layer*bpl + 1 && s <= active_logic_layer*bpl + bpl)
+      .map(s => s - active_logic_layer*bpl);
+
+  const activeBorder = isActive ? 'border-color:#3b82f6; box-shadow: 0 0 8px rgba(59,130,246,0.5); transform: scale(1.02);' : '';
+
+  return `<div class="pallet-card" style="${activeBorder}">
+    <div class="pallet-card-header">
+      <span>Pallet ${stt}</span>
+      <span style="color:#93c5fd;">M${model} (${totalQty}/${cfg.max})</span>
+    </div>
+    <div style="padding: 6px; display: flex; flex-direction: column; align-items: center; background: #f8fafc; height: 100%;">
+      <div style="font-size: 10px; font-weight: bold; color: #64748b; margin-bottom: 4px;">
+        Tầng đang xếp: <span style="color: #ef4444; font-size: 11px;">${currentLayer}</span>
+      </div>
+      ${buildMiniSlotGridForMap(filled_relative, newlyFilledSlots, bpl)}
+    </div>
+  </div>`;
+}
+
+function renderLanesTimeline() {
+  const container = document.getElementById("lanesTimeline");
+  const laneHeaders = [{ lane: 1, title: "Làn 1" }, { lane: 2, title: "Làn 2" }, { lane: 3, title: "Làn 3" }, { lane: 4, title: "Làn 4" }];
+  let html = "";
+  laneHeaders.forEach(lh => {
+    const stepsInLane = latestRouteSteps.filter(s => s.lane === lh.lane);
+    let cardsHtml = "";
+    if (stepsInLane.length === 0) cardsHtml = `<div style="color:#94a3b8; font-size:12px; text-align:center; margin-top:20px;">Không có lệnh</div>`;
+    else {
+      stepsInLane.forEach(s => {
+        let actsHtml = s.actions.map((a, idx) => `<div class="action-item"><b>${idx + 1}. Trạm ${a.side_label}</b> (Model ${a.model}): +${a.count} thùng<br><span style="color:#0369a1;">Vị trí: ${a.slots.join(", ")}</span></div>`).join("");
+        cardsHtml += `<div class="step-card ${s.is_dual ? 'dual-card' : ''}"><span class="step-badge">Bước ${s.step_num}</span><b style="float:right; color:#0f172a;">${s.token}</b>${actsHtml}</div>`;
+      });
+    }
+    html += `<div class="lane-col"><div class="lane-col-header">${lh.title}</div>${cardsHtml}</div>`;
+  });
+  container.innerHTML = html;
+}
+
+async function loadRows() {
+  const tbody = document.getElementById("rows");
+  try {
+    const res = await fetch("/api/rows");
+    const data = await res.json();
+    latestPalletData = data;
+    tbody.innerHTML = "";
+
+    data.forEach(item => {
+      const tr = document.createElement("tr");
+      const model = item['Model'];
+      const cfg = getModelConfig(model);
+      const bpl = cfg.bpl;
+      const max_layers = Math.ceil(cfg.max / bpl);
+
+      const data_slots_str = item['Data_Slots'];
+      const data_slots = data_slots_str ? data_slots_str.split(',').filter(x => x).map(Number) : [];
+      const tong = data_slots.length;
+      const isFull = (tong >= cfg.max), percent = Math.min((tong / cfg.max) * 100, 100);
+
+      let active_logic_layer = 0;
+      while (active_logic_layer < max_layers) {
+        const slots_in_layer = data_slots.filter(s => s >= active_logic_layer*bpl + 1 && s <= active_logic_layer*bpl + bpl);
+        if (slots_in_layer.length < bpl) break;
+        active_logic_layer++;
+      }
+      if (active_logic_layer === max_layers) active_logic_layer = max_layers - 1;
+
+      const current_logical_tang = active_logic_layer + 1;
+      const du = data_slots.filter(s => s >= active_logic_layer*bpl + 1 && s <= active_logic_layer*bpl + bpl).length;
+
+      let layerBlocksHTML = '<div class="layer-container">';
+      for(let i = 1; i <= max_layers; i++) {
+        const logic_l = i - 1;
+        const slots_in_this_layer = data_slots.filter(s => s >= logic_l*bpl + 1 && s <= logic_l*bpl + bpl).length;
+
+        let activeClass = '';
+        if (slots_in_this_layer > 0) activeClass = (slots_in_this_layer === bpl) ? 'full' : 'active';
+        if (i === current_logical_tang && !isFull) activeClass = 'current';
+
+        layerBlocksHTML += `<div class="layer-box ${activeClass}" title="Tầng ${i}">${i}</div>`;
+      }
+      layerBlocksHTML += `</div>`;
+
+      if(isFull) tr.className = 'row-full';
+
+      tr.innerHTML = `
+        <td><span class="badge-stt">Pallet ${item['STT Pallet']}</span></td>
+        <td><span class="badge-model">Model ${model}</span></td>
+        <td style="text-align: center;">${layerBlocksHTML}</td>
+        <td style="text-align: center;"><b style="font-size: 15px; color: ${isFull ? '#10b981' : '#3b82f6'};">${du}</b> / ${bpl}</td>
+        <td>
+          <div class="progress-container">
+            <div class="progress-text">
+              <span style="color: ${isFull ? '#10b981' : '#64748b'}">${isFull ? 'ĐÃ ĐẦY' : 'Đang xếp...'}</span>
+              <span style="color: ${isFull ? '#10b981' : '#0f172a'}">${tong} / ${cfg.max}</span>
+            </div>
+            <div class="progress-track"><div class="progress-fill ${isFull ? 'full' : ''}" style="width: ${percent}%;"></div></div>
+          </div>
+        </td>
+        <td style="text-align: center;">
+          <button onclick="editRowQuantity(${item['STT Pallet']}, ${tong}, '${model}')" style="background: #e0f2fe; color: #0284c7; border: 1px solid #bae6fd; padding: 6px 10px; border-radius: 6px; cursor: pointer; font-weight: bold; margin-right: 4px;" title="Sửa số lượng">✏️</button>
+          <button onclick="deleteRow(${item['STT Pallet']})" style="background: #fee2e2; color: #ef4444; border: 1px solid #fca5a5; padding: 6px 10px; border-radius: 6px; cursor: pointer; font-weight: bold;" title="Reset Pallet này">🗑️</button>
+        </td>
+      `;
+      tbody.appendChild(tr);
+    });
+    renderWarehouseMap();
+  } catch(err) { tbody.innerHTML = `<tr><td colspan="6" class="error">Lỗi kết nối: ${err.message}</td></tr>`; }
+}
+
+document.getElementById("btnProcess").addEventListener("click", async () => {
+  const inputVal = document.getElementById("modelInput").value;
+  const startVal = document.getElementById("startPosition").value.split(",");
+  const startX = parseInt(startVal[0]);
+  const startY = parseInt(startVal[1]);
+  const outBox = document.getElementById("outputResult");
+
+  if(!inputVal.trim()){ outBox.innerHTML = "<span class='error'>❌ Vui lòng nhập chuỗi model!</span>"; return; }
+  outBox.innerHTML = "<i>Đang tính toán tối ưu tìm đường...</i>";
+
+  try {
+    const res = await fetch("/api/process_models", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ models_string: inputVal, start_x: startX, start_y: startY })
+    });
+    const data = await res.json();
+    if(!res.ok) throw new Error(data.detail || "Lỗi xử lý");
+
+    latestRouteSteps = data.route_steps || [];
+
+    let htmlOutput = `<div style="color: #cbd5e1; font-size: 14px;">Lộ trình tự do (Robot xuất phát từ X=${startX}, Y=${startY}):</div>`;
+    htmlOutput += `<div class="route-string">${data.output_string}</div>`;
+    htmlOutput += `<div style="color: #94a3b8; font-size: 13px; font-weight: bold; margin-bottom:4px;">--- Trình tự tính toán ---</div>`;
+    htmlOutput += `<div style="color: #4ade80; font-size: 13.5px; line-height: 1.6;">${data.update_details.join("<br>")}</div>`;
+    outBox.innerHTML = htmlOutput;
+
+    await loadRows();
+    renderLanesTimeline();
+
+  } catch(err) { outBox.innerHTML = `<span class="error">❌ LỖI: ${err.message}</span>`; }
+});
+
+function connectWebSocket() {
+  const wsUrl = (window.location.protocol === "https:" ? "wss:" : "ws:") + "//" + window.location.host + "/ws";
+  const ws = new WebSocket(wsUrl);
+  ws.onmessage = (e) => { if (e.data === "update") loadRows(); };
+  ws.onclose = () => {
+    document.getElementById("tableStatus").innerHTML = '<span class="status-dot dot-dead"></span> <span class="error">Mất kết nối!</span>';
+    setTimeout(connectWebSocket, 3000);
+  };
+}
+
+async function resetAllRows() {
+  if(!confirm("⚠️ Bạn có chắc chắn muốn XÓA TOÀN BỘ số lượng của tất cả Pallet về 0?")) return;
+  try {
+    const res = await fetch("/api/reset_all", { method: "DELETE" });
+    if(!res.ok) throw new Error("Lỗi khi reset");
+    latestRouteSteps = [];
+    renderLanesTimeline();
+    loadRows();
+  } catch(err) { alert("❌ Lỗi: " + err.message); }
+}
+
+async function deleteRow(stt) {
+  if(!confirm(`⚠️ Bạn có muốn xóa (reset) số lượng của Pallet ${stt} về 0 không?`)) return;
+  try {
+    const res = await fetch(`/api/delete_row/${stt}`, { method: "DELETE" });
+    if(!res.ok) throw new Error("Lỗi khi xóa");
+  } catch(err) { alert("❌ Lỗi: " + err.message); }
+}
+
+async function editRowQuantity(stt, currentQty, model) {
+  const cfg = getModelConfig(model);
+  let inputVal = prompt(`✏️ Nhập số lượng mới cho Pallet ${stt} (Model ${model} - Tối đa ${cfg.max} thùng):`, currentQty);
+  if (inputVal === null) return;
+  let newQty = parseInt(inputVal);
+  if (isNaN(newQty) || newQty < 0 || newQty > cfg.max) { alert(`❌ Số lượng không hợp lệ (Phải từ 0 đến ${cfg.max})!`); return; }
+
+  try {
+    const res = await fetch(`/api/update_row_quantity/${stt}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ new_quantity: newQty })
+    });
+    if(!res.ok) throw new Error("Lỗi cập nhật");
+  } catch(err) { alert("❌ Lỗi: " + err.message); }
+}
+
+loadRows();
+connectWebSocket();
+</script>
+</body>
+</html>
