@@ -1,0 +1,135 @@
+<mxfile host="app.diagrams.net">
+  <diagram id="gTNPkgQhHBsy6lAzGYxG" name="Trang-1">
+    <mxGraphModel dx="5050" dy="2804" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1169" pageHeight="1654" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="header_amr" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontColor=#000000;fontSize=14;fontFamily=Times New Roman;" value="&lt;b&gt;ROBOT TỰ HÀNH (AMR)&lt;/b&gt;" vertex="1">
+          <mxGeometry height="40" width="260" x="40" y="40" as="geometry" />
+        </mxCell>
+        <mxCell id="header_srv" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontColor=#000000;fontSize=14;fontFamily=Times New Roman;" value="&lt;b&gt;HỆ THỐNG / SERVER (app.py)&lt;/b&gt;" vertex="1">
+          <mxGeometry height="40" width="260" x="360" y="40" as="geometry" />
+        </mxCell>
+        <mxCell id="header_cob" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;fontColor=#000000;fontSize=14;fontFamily=Times New Roman;" value="&lt;b&gt;CÁNH TAY ROBOT (COBOT)&lt;/b&gt;" vertex="1">
+          <mxGeometry height="40" width="260" x="680" y="40" as="geometry" />
+        </mxCell>
+        <mxCell id="n_start" parent="1" style="shape=document;whiteSpace=wrap;html=1;boundedLbl=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontFamily=Times New Roman;" value="&lt;b&gt;1. KHỞI TẠO ĐƠN HÀNG&lt;/b&gt;&lt;br&gt;Nhập chuỗi lô hàng &amp;amp; Bấm xử lý trên Web UI" vertex="1">
+          <mxGeometry height="70" width="260" x="360" y="100" as="geometry" />
+        </mxCell>
+        <mxCell id="n_init" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontFamily=Times New Roman;" value="&lt;b&gt;TÍNH TOÁN &amp;amp; KHỞI TẠO BỘ NHỚ&lt;/b&gt;&lt;br&gt;- Tính đường đi, đếm tầng/thùng (Excel)&lt;br&gt;- Khởi tạo: &lt;i&gt;amr_status = IDLE&lt;/i&gt;&lt;br&gt;- Gán: &lt;i&gt;remaining_boxes = N&lt;/i&gt;" vertex="1">
+          <mxGeometry height="70" width="260" x="360" y="200" as="geometry" />
+        </mxCell>
+        <mxCell id="n_amr_get" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontFamily=Times New Roman;" value="&lt;b&gt;2. LIÊN TỤC HỎI ĐƯỜNG (POLLING)&lt;/b&gt;&lt;br&gt;GET /api/amr/next_step" vertex="1">
+          <mxGeometry height="60" width="260" x="40" y="310" as="geometry" />
+        </mxCell>
+        <mxCell id="n_srv_move" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontFamily=Times New Roman;" value="&lt;b&gt;ĐIỀU HƯỚNG AMR&lt;/b&gt;&lt;br&gt;Trả về Mã Đích (Ví dụ: 17L)&lt;br&gt;Gán &lt;i&gt;amr_status = MOVING&lt;/i&gt;" vertex="1">
+          <mxGeometry height="60" width="260" x="360" y="310" as="geometry" />
+        </mxCell>
+        <mxCell id="n_cob_wait" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;fontFamily=Times New Roman;" value="&lt;b&gt;3. COBOT HỎI VIỆC&lt;/b&gt;&lt;br&gt;GET /api/cobot/current_task&lt;br&gt;&lt;font color=&#39;#ff0000&#39;&gt;(Server thấy chữ MOVING -&amp;gt; Ép Cobot&lt;br&gt;nhận status &amp;quot;waiting_amr&amp;quot; và đứng im)&lt;/font&gt;" vertex="1">
+          <mxGeometry height="70" width="260" x="800" y="320" as="geometry" />
+        </mxCell>
+        <mxCell id="n_amr_arr" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontFamily=Times New Roman;" value="&lt;b&gt;4. ĐẾN TRẠM, KHÓA PHANH&lt;/b&gt;&lt;br&gt;Báo cáo: POST /api/amr/arrived" vertex="1">
+          <mxGeometry height="60" width="260" x="40" y="490" as="geometry" />
+        </mxCell>
+        <mxCell id="n_srv_arr" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontFamily=Times New Roman;" value="&lt;b&gt;GHI NHẬN XE ĐỖ (BẬT CỜ ĐỎ)&lt;/b&gt;&lt;br&gt;Gán &lt;i&gt;amr_status = ARRIVED&lt;/i&gt;&lt;br&gt;(Từ lúc này, AMR gọi lên sẽ bị ép đứng chờ)" vertex="1">
+          <mxGeometry height="60" width="260" x="360" y="490" as="geometry" />
+        </mxCell>
+        <mxCell id="n_cob_rdy" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;fontFamily=Times New Roman;" value="&lt;b&gt;5. MỞ KHÓA GẮP HÀNG&lt;/b&gt;&lt;br&gt;GET /api/cobot/current_task&lt;br&gt;Server thấy chữ ARRIVED liền cấp:&lt;br&gt;&lt;b&gt;status &amp;quot;ready&amp;quot; + Tọa độ (pose_id)&lt;/b&gt;" vertex="1">
+          <mxGeometry height="70" width="260" x="680" y="580" as="geometry" />
+        </mxCell>
+        <mxCell id="n_cob_gap" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;fontFamily=Times New Roman;" value="&lt;b&gt;THỰC THI GẮP THẢ HÀNG&lt;/b&gt;&lt;br&gt;Vung tay theo tọa độ pose_id được cấp." vertex="1">
+          <mxGeometry height="60" width="260" x="680" y="690" as="geometry" />
+        </mxCell>
+        <mxCell id="n_cob_put" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;fontFamily=Times New Roman;" value="&lt;b&gt;BÁO CÁO LẤP LỖ TRỐNG&lt;/b&gt;&lt;br&gt;POST /records/quantity" vertex="1">
+          <mxGeometry height="60" width="260" x="680" y="790" as="geometry" />
+        </mxCell>
+        <mxCell id="n_srv_upd" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontFamily=Times New Roman;" value="&lt;b&gt;6. CẬP NHẬT TRẠNG THÁI&lt;/b&gt;&lt;br&gt;- Lưu số lượng chốt vào data.xlsx&lt;br&gt;- Trừ lùi: &lt;i&gt;remaining_boxes -= 1&lt;/i&gt;" vertex="1">
+          <mxGeometry height="60" width="260" x="360" y="790" as="geometry" />
+        </mxCell>
+        <mxCell id="n_chk_box" parent="1" style="rhombus;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontFamily=Times New Roman;" value="&lt;b&gt;remaining_boxes &amp;gt; 0 ?&lt;/b&gt;&lt;br&gt;(Kiểm tra xem đã thả hết số hàng của trạm này chưa?)" vertex="1">
+          <mxGeometry height="100" width="240" x="370" y="900" as="geometry" />
+        </mxCell>
+        <mxCell id="n_chk_rte" parent="1" style="rhombus;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontFamily=Times New Roman;" value="&lt;b&gt;Còn trạm nào trong Lộ trình không?&lt;/b&gt;" vertex="1">
+          <mxGeometry height="90" width="240" x="370" y="1060" as="geometry" />
+        </mxCell>
+        <mxCell id="n_done" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontStyle=1;fontFamily=Times New Roman;" value="&lt;b&gt;KẾT THÚC CHU TRÌNH&lt;/b&gt;&lt;br&gt;Gán &lt;i&gt;amr_status = DONE_ALL&lt;/i&gt;&lt;br&gt;Hệ thống về trạng thái Chờ (Standby)" vertex="1">
+          <mxGeometry height="60" width="260" x="360" y="1210" as="geometry" />
+        </mxCell>
+        <mxCell id="e_start_init" edge="1" parent="1" source="n_start" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeWidth=2;fontFamily=Times New Roman;" target="n_init">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e_init_amr" edge="1" parent="1" source="n_init" style="edgeStyle=orthogonalEdgeStyle;dashed=1;html=1;strokeWidth=2;strokeColor=#666666;fontFamily=Times New Roman;" target="n_amr_get">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="170" y="235" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e_amr_move" edge="1" parent="1" source="n_amr_get" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeWidth=2;fontFamily=Times New Roman;" target="n_srv_move">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e_cob_ask1" edge="1" parent="1" source="n_cob_wait" style="edgeStyle=orthogonalEdgeStyle;dashed=1;html=1;strokeWidth=2;strokeColor=#FF6666;fontFamily=Times New Roman;" target="n_srv_move">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="700" y="425" />
+              <mxPoint x="700" y="340" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e_srv_amr_arr" edge="1" parent="1" source="n_srv_move" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeWidth=2;fontFamily=Times New Roman;" target="n_amr_arr">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="490" y="410" />
+              <mxPoint x="170" y="410" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e_amr_srv_arr" edge="1" parent="1" source="n_amr_arr" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeWidth=2;fontFamily=Times New Roman;" target="n_srv_arr">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e_srv_cob_rdy" edge="1" parent="1" source="n_srv_arr" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeWidth=2;fontFamily=Times New Roman;" target="n_cob_rdy">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="490" y="615" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e_cob_gap" edge="1" parent="1" source="n_cob_rdy" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeWidth=2;fontFamily=Times New Roman;" target="n_cob_gap">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e_cob_put" edge="1" parent="1" source="n_cob_gap" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeWidth=2;fontFamily=Times New Roman;" target="n_cob_put">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e_cob_srv_upd" edge="1" parent="1" source="n_cob_put" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeWidth=2;fontFamily=Times New Roman;" target="n_srv_upd">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e_srv_chkbox" edge="1" parent="1" source="n_srv_upd" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeWidth=2;fontFamily=Times New Roman;" target="n_chk_box">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e_chkbox_yes" edge="1" parent="1" source="n_chk_box" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeWidth=2;strokeColor=#82b366;fontColor=#82b366;" target="n_cob_rdy" value="&lt;b&gt;CÒN THÙNG&lt;/b&gt;&lt;br&gt;(Gắp tiếp)">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="980" y="950" />
+              <mxPoint x="980" y="615" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e_chkbox_no" edge="1" parent="1" source="n_chk_box" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeWidth=2;strokeColor=#b85450;fontColor=#b85450;" target="n_chk_rte" value="&lt;b&gt;HẾT (Xong trạm)&lt;/b&gt;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e_chkrte_yes" edge="1" parent="1" source="n_chk_rte" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeWidth=2;strokeColor=#82b366;fontColor=#82b366;" target="n_amr_get" value="&lt;b&gt;CÒN TRẠM KHÁC&lt;/b&gt;&lt;br&gt;(AMR nhận lệnh chạy tiếp)">
+          <mxGeometry relative="1" x="-0.8529" y="-30" as="geometry">
+            <mxPoint as="offset" />
+            <Array as="points">
+              <mxPoint x="10" y="1105" />
+              <mxPoint x="10" y="340" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e_chkrte_no" edge="1" parent="1" source="n_chk_rte" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeWidth=2;strokeColor=#b85450;fontColor=#b85450;" target="n_done" value="&lt;b&gt;HẾT LỘ TRÌNH&lt;/b&gt;">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

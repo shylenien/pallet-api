@@ -4,8 +4,7 @@ from pydantic import BaseModel
 import pandas as pd
 from pathlib import Path
 import threading
-from typing import Optional
-import re
+from typing import Optional, List
 
 BASE_DIR = Path(__file__).parent
 EXCEL_FILE = BASE_DIR / "data.xlsx"
@@ -17,7 +16,7 @@ try:
 except FileNotFoundError:
     api_description = "Hệ thống Điều Phối Robot Kho Hàng & Excel Quantity API"
 
-app = FastAPI(title="🤖 Hệ Thống Điều Phối Robot", description=api_description, version="7.5.0")
+app = FastAPI(title="🤖 Hệ Thống Điều Phối Robot", description=api_description, version="8.0.0")
 
 
 class ConnectionManager:
@@ -84,6 +83,13 @@ MODEL_CONFIG = {
 
 global_route_data = {"output_string": "", "route_steps": [], "update_details": []}
 
+# 🔥 BỘ BIẾN TRẠNG THÁI (STATE MACHINE) ĐIỀU PHỐI AMR <-> COBOT
+execution_state = {
+    "current_step_index": 0,  # Bước hiện tại trong route_steps
+    "amr_status": "IDLE",  # IDLE | MOVING | ARRIVED | DONE_ALL
+    "remaining_boxes": 0  # Số thùng còn phải thả tại trạm hiện tại
+}
+
 
 def get_model_cfg(model_name: str) -> dict:
     m = str(model_name).strip()
@@ -107,7 +113,7 @@ class ModelInput(BaseModel):
     models_string: str
     start_x: int
     start_y: int
-    save_to_db: bool = True
+    save_to_db: bool = False  # Mặc định False để Cobot PUT từng thùng lên giao diện theo thời gian thực
 
 
 class QuantityUpdate(BaseModel): new_quantity: int
@@ -122,16 +128,23 @@ class RecordUpdate(BaseModel):
 
 
 def clean_excel_dataframe(df: pd.DataFrame) -> pd.DataFrame:
-    if 'STT' not in df.columns and 'STT Pallet' in df.columns: df['STT'] = df['STT Pallet']
-    if 'Số Pallet' not in df.columns and 'STT Pallet' in df.columns: df['Số Pallet'] = df['STT Pallet']
-    if 'STT Pallet' not in df.columns and 'STT' in df.columns: df['STT Pallet'] = df['STT']
+    if 'STT Pallet' not in df.columns:
+        if 'STT' in df.columns:
+            df['STT Pallet'] = df['STT']
+        elif 'Số Pallet' in df.columns:
+            df['STT Pallet'] = df['Số Pallet']
+
     df = df.dropna(subset=['STT Pallet']).copy()
-    for col in ['STT Pallet', 'STT', 'Số Pallet', 'Model', 'Số lượng', 'Số tầng', 'Số thùng/tầng', 'Tổng số thùng']:
+    for col in ['STT Pallet', 'Model', 'Số lượng', 'Số tầng', 'Số thùng/tầng', 'Tổng số thùng']:
         if col not in df.columns: df[col] = 0
-    for col in ['STT Pallet', 'STT', 'Số Pallet', 'Số lượng']:
+    for col in ['STT Pallet', 'Số lượng']:
         df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0).astype(int)
+
     if 'Data_Slots' not in df.columns: df['Data_Slots'] = ""
     df['Data_Slots'] = df['Data_Slots'].fillna("").astype(str)
+
+    if 'STT' in df.columns: df = df.drop(columns=['STT'])
+    if 'Số Pallet' in df.columns: df = df.drop(columns=['Số Pallet'])
     return df
 
 
@@ -165,18 +178,27 @@ def get_rows():
             raise HTTPException(status_code=500, detail=str(e))
 
 
+@app.get("/api/pallets/status", tags=["REST API Ngoài"])
+def get_pallets_status(stt: List[int] = Query(None, description="Danh sách STT Pallet")):
+    with excel_lock:
+        if not EXCEL_FILE.exists(): raise HTTPException(status_code=500)
+        try:
+            df = clean_excel_dataframe(pd.read_excel(EXCEL_FILE))
+            if not stt: return []
+            return df[df['STT Pallet'].isin(stt)].fillna("").to_dict(orient="records")
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=str(e))
+
+
 @app.post("/api/process_models", tags=["Giao diện Web"])
 def process_models(payload: ModelInput, background_tasks: BackgroundTasks):
-    global global_route_data
+    global global_route_data, execution_state
+
     if not payload.models_string: raise HTTPException(status_code=400, detail="Chuỗi rỗng")
     try:
         input_models = [int(x.strip()) for x in payload.models_string.replace('{', '').replace('}', '').split(';') if
                         x.strip()]
-
-        # 🔥 ĐÃ PHỤC HỒI LỆNH REVERSE TỪ PHIÊN BẢN GỐC CỦA BÁC
-        # Để đảm bảo Cobot gắp hàng theo nguyên lý LIFO (Vào sau ra trước)
         input_models.reverse()
-
     except ValueError:
         raise HTTPException(status_code=400, detail="Sai định dạng đầu vào.")
 
@@ -198,6 +220,8 @@ def process_models(payload: ModelInput, background_tasks: BackgroundTasks):
                                                    detail=f"Model không tồn tại: {set(invalid_models)}")
 
             virtual_counts = {row['STT Pallet']: row['Số lượng'] for _, row in df.iterrows()}
+            log_pallet_counts = virtual_counts.copy()
+            pallets_involved = set()
 
             virtual_states = {}
             for p in virtual_counts:
@@ -218,6 +242,8 @@ def process_models(payload: ModelInput, background_tasks: BackgroundTasks):
                     avail = cfg['max'] - virtual_counts[best_p]
                     drop_qty = min(rem, avail)
                     sequential_tasks.append({"model": m_str, "p_stt": best_p, "count": drop_qty})
+
+                    pallets_involved.add(best_p)
                     virtual_counts[best_p] += drop_qty
                     rem -= drop_qty
 
@@ -229,6 +255,41 @@ def process_models(payload: ModelInput, background_tasks: BackgroundTasks):
                            abs(y1 - BOTTOM_CORRIDOR_Y) + abs(x1 - x2) + abs(y2 - BOTTOM_CORRIDOR_Y))
 
             route_steps, output_tokens, update_log, step_counter = [], [], [], 0
+
+            involved_list = sorted(list(pallets_involved))
+            query_str = "&amp;".join([f"stt={p}" for p in involved_list])
+            api_endpoint_html = f"GET /api/pallets/status?{query_str}"
+
+            update_log.append(
+                "<b style='color:#fbbf24; font-size:14px; margin-top: 8px; display: block;'>--- [SYSTEM PRE-CHECK] TRẠNG THÁI PALLET ĐÍCH TẠI HIỆN TRƯỜNG ---</b>")
+            update_log.append(
+                f"<span style='color:#94a3b8; font-size:12px; font-family:monospace; display: block; margin-bottom: 4px;'>📡 Server gọi API: <code style='color:#38bdf8'>{api_endpoint_html}</code> (Trích xuất cục bộ mục tiêu)</span>")
+
+            for idx, p_id in enumerate(involved_list):
+                curr_q = log_pallet_counts[p_id]
+                model_n = df.loc[df['STT Pallet'] == p_id, 'Model'].iloc[0]
+
+                layer = (curr_q // 6) + 1 if curr_q < 36 else 6
+                boxes_in_layer = curr_q % 6
+                if curr_q > 0 and curr_q % 6 == 0:
+                    boxes_in_layer = 6
+                    layer = curr_q // 6
+
+                slots_left = 6 - boxes_in_layer
+
+                if curr_q == 0:
+                    msg = "Trống hoàn toàn - Bắt đầu xếp Tầng 1 ➔ Còn trống 6 lỗ."
+                elif boxes_in_layer == 6:
+                    msg = f"Tầng {layer} đã đầy (6/6) - Chuẩn bị sang Tầng {layer + 1} ➔ Còn trống 6 lỗ."
+                else:
+                    msg = f"Đang xếp Tầng {layer} - Đã có {boxes_in_layer}/6 thùng ➔ Còn trống {slots_left} lỗ."
+
+                prefix = "└─" if idx == len(involved_list) - 1 else "├─"
+                update_log.append(
+                    f"<span style='color:#fcd34d; font-size:13px; font-family:monospace; display: block;'> {prefix} 🔍 Pallet {p_id} (Model {model_n}): {msg}</span>")
+            update_log.append(
+                "<b style='color:#fbbf24; margin-bottom: 8px; display: block;'>-----------------------------------------------------------------</b>")
+
             for task in sequential_tasks:
                 p_stt, rem_drop, model = task["p_stt"], task["count"], task["model"]
                 cfg = get_model_cfg(model)
@@ -303,24 +364,51 @@ def process_models(payload: ModelInput, background_tasks: BackgroundTasks):
                     else:
                         merged_route.append(step)
 
-            final_route_steps, final_output_tokens, final_update_log = [], [], []
+            final_route_steps, final_output_tokens = [], []
             for idx, step in enumerate(merged_route):
                 step_num = idx + 1;
                 step["step_num"] = step_num
                 final_output_tokens.append(step["token"])
                 act = step["actions"][0]
                 side_vn = "Trái" if act["side"] == "L" else "Phải"
-                final_update_log.append(
-                    f"Bước {step_num} [{step['lane_name']}] - Trạm {act['side_label']} ({side_vn}): Xếp {act['count']} thùng [{', '.join(act['slots'])}]")
+                p_stt = act['pallet_stt']
+
+                update_log.append(
+                    f"<b style='color:#4ade80;'>Bước {step_num} [{step['lane_name']}] - Trạm {act['side_label']} ({side_vn}): Xếp {act['count']} thùng [{', '.join(act['slots'])}]</b>")
+                update_log.append(
+                    f"<span style='color:#cbd5e1; font-size:12px; font-family:monospace; display: block;'>&nbsp;&nbsp;├─ 🚐 AMR lấy lệnh &amp; báo đỗ: <code style='color:#fbbf24'>GET /api/amr/next_step</code> ➔ <code style='color:#fbbf24'>POST /api/amr/arrived</code> (Tại {act['side_label']})</span>")
+
+                for i in range(act["count"]):
+                    slot_name = act["slots"][i]
+                    log_pallet_counts[p_stt] += 1
+                    current_qty = log_pallet_counts[p_stt]
+
+                    current_layer = (current_qty - 1) // 6 + 1 if current_qty > 0 else 0
+                    boxes_in_layer = (current_qty - 1) % 6 + 1 if current_qty > 0 else 0
+
+                    update_log.append(
+                        f"<span style='color:#94a3b8; font-size:12px; font-family:monospace; display: block;'>&nbsp;&nbsp;├─ 🤖 Cobot nhận việc (Lần {i + 1}): <code style='color:#38bdf8'>GET /api/cobot/current_task</code> (Trả về {act['side_label']})</span>")
+
+                    prefix = "└─" if i == act["count"] - 1 else "├─"
+                    update_log.append(
+                        f"<span style='color:#94a3b8; font-size:12px; font-family:monospace; display: block;'>&nbsp;&nbsp;{prefix} 📝 Báo cáo: <code style='color:#f472b6'>POST /records/quantity</code> (Nhét vào {slot_name}) ➔ <b style='color:#fcd34d'>Pallet {p_stt} đạt Tầng {current_layer} ({boxes_in_layer}/6) - Tổng: {current_qty}/36</b></span>")
+
                 final_route_steps.append(step)
 
             global_route_data.update({
                 "output_string": "{" + "; ".join(final_output_tokens) + "}",
                 "route_steps": final_route_steps,
-                "update_details": final_update_log
+                "update_details": update_log
             })
 
-            background_tasks.add_task(manager.broadcast, "update")
+            # 🔥 KHỞI TẠO TRẠNG THÁI CHO AMR & COBOT BẮT ĐẦU CHẠY BƯỚC 1
+            if final_route_steps:
+                execution_state["current_step_index"] = 0
+                execution_state["amr_status"] = "IDLE"
+                execution_state["remaining_boxes"] = final_route_steps[0]["actions"][0]["count"]
+            else:
+                execution_state["amr_status"] = "DONE_ALL"
+                execution_state["remaining_boxes"] = 0
 
             if payload.save_to_db:
                 for p_stt, state in virtual_states.items():
@@ -338,13 +426,88 @@ def process_models(payload: ModelInput, background_tasks: BackgroundTasks):
                 except PermissionError:
                     raise HTTPException(status_code=400, detail="Vui lòng tắt Excel.")
 
+            background_tasks.add_task(manager.broadcast, "update")
             return {"success": True, "output_string": global_route_data["output_string"],
-                    "route_steps": final_route_steps, "update_details": final_update_log}
+                    "route_steps": final_route_steps, "update_details": update_log}
         except HTTPException:
             raise
         except Exception as e:
             raise HTTPException(status_code=500, detail=str(e))
 
+
+# =========================================================================
+# 🔥 CÁC API GIAO TIẾP (HANDSHAKE) GIỮA AMR VÀ COBOT
+# =========================================================================
+
+@app.get("/api/amr/next_step", tags=["Giao tiếp AMR & Cobot"])
+def amr_get_next_step():
+    steps = global_route_data.get("route_steps", [])
+    idx = execution_state["current_step_index"]
+
+    if not steps or idx >= len(steps) or execution_state["amr_status"] == "DONE_ALL":
+        execution_state["amr_status"] = "DONE_ALL"
+        return {"status": "idle", "message": "Không có lệnh hoặc đã hoàn thành toàn bộ lộ trình."}
+
+    if execution_state["amr_status"] == "ARRIVED" and execution_state["remaining_boxes"] > 0:
+        return {"status": "wait_cobot",
+                "message": f"Đang chờ Cobot thả nốt {execution_state['remaining_boxes']} thùng."}
+
+    current_step = steps[idx]
+    act = current_step["actions"][0]
+    execution_state["amr_status"] = "MOVING"
+
+    return {
+        "status": "move",
+        "step_num": current_step["step_num"],
+        "stop_id": current_step["stop_id"],
+        "lane_name": current_step["lane_name"],
+        "token": current_step["token"],
+        "pallet_stt": act["pallet_stt"],
+        "side": act["side"],
+        "boxes_to_drop": execution_state["remaining_boxes"]
+    }
+
+
+@app.post("/api/amr/arrived", tags=["Giao tiếp AMR & Cobot"])
+def amr_report_arrived():
+    steps = global_route_data.get("route_steps", [])
+    idx = execution_state["current_step_index"]
+
+    if not steps or idx >= len(steps):
+        raise HTTPException(status_code=400, detail="Không có lộ trình nào đang chạy.")
+
+    execution_state["amr_status"] = "ARRIVED"
+    current_step = steps[idx]
+    return {
+        "success": True,
+        "token": current_step["token"],
+        "message": f"Server đã ghi nhận AMR đỗ tại {current_step['token']}. Đã mở khóa cho Cobot!"
+    }
+
+
+@app.get("/api/cobot/current_task", tags=["Giao tiếp AMR & Cobot"])
+def cobot_get_current_task():
+    steps = global_route_data.get("route_steps", [])
+    idx = execution_state["current_step_index"]
+
+    if not steps or idx >= len(steps) or execution_state["amr_status"] == "DONE_ALL":
+        return {"status": "idle", "message": "Hệ thống đang nghỉ, không có đơn hàng."}
+
+    current_step = steps[idx]
+    if execution_state["amr_status"] != "ARRIVED":
+        return {
+            "status": "waiting_amr",
+            "target_token": current_step["token"],
+            "message": f"Đang chờ AMR di chuyển tới trạm {current_step['token']}..."
+        }
+
+    act = current_step["actions"][0]
+    task_info = get_cobot_task(pallet=act["pallet_stt"], side=act["side"])
+    task_info["remaining_boxes_at_stop"] = execution_state["remaining_boxes"]
+    return task_info
+
+
+# =========================================================================
 
 @app.delete("/api/reset_all", tags=["Giao diện Web"])
 def reset_all(background_tasks: BackgroundTasks):
@@ -355,6 +518,7 @@ def reset_all(background_tasks: BackgroundTasks):
             df['Data_Slots'] = ""
             df.to_excel(EXCEL_FILE, index=False)
             global_route_data.update({"output_string": "", "route_steps": [], "update_details": []})
+            execution_state.update({"current_step_index": 0, "amr_status": "IDLE", "remaining_boxes": 0})
             background_tasks.add_task(manager.broadcast, "update")
             return {"success": True}
         except Exception as e:
@@ -403,28 +567,27 @@ def health_check(): return {"status": "ok"}
 def get_records(model: Optional[str] = Query(None), so_pallet: Optional[int] = Query(None)):
     df = clean_excel_dataframe(pd.read_excel(EXCEL_FILE))
     if model: df = df[df['Model'].astype(str).str.strip() == model.strip()]
-    if so_pallet is not None: df = df[df['Số Pallet'] == so_pallet]
+    if so_pallet is not None: df = df[df['STT Pallet'] == so_pallet]
     return df.fillna("").to_dict(orient="records")
 
 
 @app.get("/records/lookup", tags=["REST API Ngoài"])
 def lookup_record(stt: int, so_pallet: int, model: str):
     df = clean_excel_dataframe(pd.read_excel(EXCEL_FILE))
-    mask = (df['STT'] == stt) & (df['Số Pallet'] == so_pallet) & (df['Model'].astype(str).str.strip() == model.strip())
+    mask = (df['STT Pallet'] == stt) & (df['Model'].astype(str).str.strip() == model.strip())
     result = df[mask]
     if result.empty: raise HTTPException(status_code=404, detail="Không tìm thấy")
     if len(result) > 1: raise HTTPException(status_code=409, detail="Trùng lặp")
     return result.fillna("").to_dict(orient="records")[0]
 
 
-@app.put("/records/quantity", tags=["REST API Ngoài"])
+@app.post("/records/quantity", tags=["REST API Ngoài"])
 def update_quantity(payload: RecordUpdate, background_tasks: BackgroundTasks):
     with excel_lock:
         if not EXCEL_FILE.exists(): raise HTTPException(status_code=500)
         try:
             df = clean_excel_dataframe(pd.read_excel(EXCEL_FILE))
-            mask = (df['STT'] == payload.stt) & (df['Số Pallet'] == payload.so_pallet) & (
-                        df['Model'].astype(str).str.strip() == payload.model.strip())
+            mask = (df['STT Pallet'] == payload.stt) & (df['Model'].astype(str).str.strip() == payload.model.strip())
             matching_indices = df[mask].index
             if len(matching_indices) == 0: raise HTTPException(status_code=404)
 
@@ -449,6 +612,20 @@ def update_quantity(payload: RecordUpdate, background_tasks: BackgroundTasks):
             df.loc[target_index, 'Số thùng/tầng'] = 0 if final_qty == 0 else (final_qty % cfg['bpl'] or cfg['bpl'])
 
             df.to_excel(EXCEL_FILE, index=False)
+
+            # 🔥 CẬP NHẬT TRẠNG THÁI HANDSHAKE SAU KHI COBOT THẢ XONG 1 THÙNG
+            if execution_state["amr_status"] == "ARRIVED" and execution_state["remaining_boxes"] > 0:
+                execution_state["remaining_boxes"] -= 1
+                if execution_state["remaining_boxes"] == 0:
+                    execution_state["current_step_index"] += 1
+                    steps = global_route_data.get("route_steps", [])
+                    if execution_state["current_step_index"] < len(steps):
+                        next_act = steps[execution_state["current_step_index"]]["actions"][0]
+                        execution_state["remaining_boxes"] = next_act["count"]
+                        execution_state["amr_status"] = "IDLE"  # Giải phóng cho AMR chạy sang trạm kế tiếp
+                    else:
+                        execution_state["amr_status"] = "DONE_ALL"
+
             background_tasks.add_task(manager.broadcast, "update")
             return {"success": True}
         except Exception as e:
